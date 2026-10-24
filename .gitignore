@@ -1,0 +1,5 @@
+/gBot
+go.work
+go.work.sum
+.env
+/vendor/

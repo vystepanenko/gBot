@@ -1,6 +1,8 @@
 /*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
+Copyright © 2026 Valentyn <cannibal.mtll@gmail.com>
 */
+
+// Package cmd implements the CLI commands for gbot
 package cmd
 
 import (

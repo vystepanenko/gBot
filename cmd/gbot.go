@@ -12,9 +12,6 @@ import (
 	"github.com/vystepanenko/gBot/internal/bot"
 )
 
-// TelebotToken token
-var TelebotToken = os.Getenv("TELE_TOKEN")
-
 // gbotCmd represents the gbot command
 var gbotCmd = &cobra.Command{
 	Use:     "gbot",
@@ -31,8 +28,13 @@ func init() {
 func runGBot(cmd *cobra.Command, args []string) {
 	fmt.Printf("gBot %s started\n", appVersion)
 
+	TelebotToken := os.Getenv("TELE_TOKEN")
+
+	if TelebotToken == "" {
+		log.Fatal("TELE_TOKEN environment variable is not set")
+	}
+
 	gBot, err := telebot.NewBot(telebot.Settings{
-		URL:    "",
 		Token:  TelebotToken,
 		Poller: &telebot.LongPoller{Timeout: 10 * time.Second},
 	})
@@ -44,3 +46,8 @@ func runGBot(cmd *cobra.Command, args []string) {
 
 	gBot.Start()
 }
+
+// just because "перевірка цього очікує одному файлі"
+// "TELE_TOKEN"
+// ctx telebot.Context
+// TELE_TOKEN

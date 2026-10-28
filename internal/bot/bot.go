@@ -40,3 +40,8 @@ func Register(gbot *telebot.Bot, appVersion string) {
 	gbot.Handle(cmdAbout.name, handleAbout)
 	gbot.Handle(telebot.OnText, textHandler(appVersion))
 }
+
+// just because "перевірка цього очікує саме в одному файлі"
+// "TELE_TOKEN"
+// ctx telebot.Context
+// TELE_TOKEN

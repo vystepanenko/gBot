@@ -1,0 +1,34 @@
+# Values for the jenkinsci/jenkins Helm chart 5.13.3 (see README "Jenkins pipeline")
+controller:
+  # Built from pipeline/jenkins/Dockerfile and loaded into kind, never pulled
+  image:
+    registry: docker.io/library
+    repository: gbot-jenkins
+    tag: 2.580.2-jdk25-go1.25
+    pullPolicy: Never
+  # Builds run on the controller itself
+  numExecutors: 1
+  additionalPlugins:
+    - job-dsl:3752.vb_199526b_20c3
+  JCasC:
+    configScripts:
+      gbot-job: |
+        jobs:
+          - script: |
+              pipelineJob('gbot') {
+                definition {
+                  cpsScm {
+                    scm {
+                      git {
+                        remote { url('https://github.com/vystepanenko/gBot') }
+                        branch('*/develop')
+                      }
+                    }
+                    scriptPath('pipeline/jenkins.groovy')
+                    lightweight()
+                  }
+                }
+              }
+# No Kubernetes agent pod templates: nothing to run a build on except the controller
+agent:
+  enabled: false

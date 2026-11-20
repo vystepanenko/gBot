@@ -377,6 +377,81 @@ Then send `/version` to the bot: it answers with the same `v1.0.0-<commit>` as `
 ArgoCD UI: `kubectl port-forward svc/argocd-server -n argocd 8080:443`, open https://localhost:8080,
 user `admin`, password from `kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d`.
 
+## Jenkins pipeline
+
+[`pipeline/jenkins.groovy`](pipeline/jenkins.groovy) is a declarative Jenkins Pipeline for a parameterized
+multi-platform build. It runs on the Jenkins controller itself (`agent any`) and calls the same make targets
+as a local build. Each build archives one binary: `gbot`, or `gbot.exe` for Windows.
+
+| Parameter    | Choices / default                      | Effect                              |
+|--------------|----------------------------------------|-------------------------------------|
+| `OS`         | `linux` (default), `darwin`, `windows` | `TARGETOS` of `make build`          |
+| `ARCH`       | `amd64` (default), `arm64`             | `TARGETARCH` of `make build`        |
+| `SKIP_LINT`  | `false`                                | skip the `Lint` stage (`make lint`) |
+| `SKIP_TESTS` | `false`                                | skip the `Test` stage (`make test`) |
+
+Stages: `Lint` → `Test` → `Build` (`make build`, archive the binary). The workspace is deleted after every build.
+
+### One-time setup
+
+Jenkins runs in a local [kind](https://kind.sigs.k8s.io/) cluster, installed with the official Helm chart and
+[`pipeline/jenkins/values.yaml`](pipeline/jenkins/values.yaml):
+
+- the controller image is [`pipeline/jenkins/Dockerfile`](pipeline/jenkins/Dockerfile): the stock
+  `jenkins/jenkins` image plus `make` and Go, which the build needs;
+- the controller has 1 executor and there are no Kubernetes agent pod templates, so builds run on the controller;
+- the job `gbot` is created at startup by Configuration as Code + Job DSL.
+
+```bash
+docker build -t gbot-jenkins:2.580.2-jdk25-go1.25 pipeline/jenkins
+kind create cluster --name jenkins --kubeconfig ~/.kube/jenkins-kind.yaml
+kind load docker-image gbot-jenkins:2.580.2-jdk25-go1.25 --name jenkins
+
+export KUBECONFIG=~/.kube/jenkins-kind.yaml
+kubectl config current-context    # kind-jenkins
+helm repo add jenkinsci https://charts.jenkins.io/
+helm repo update
+helm install jenkins jenkinsci/jenkins --version 5.13.3 -f pipeline/jenkins/values.yaml
+kubectl rollout status statefulset/jenkins --timeout=600s
+```
+
+> `KUBECONFIG` is set only in the current shell: in a new terminal run the `export` again (each block below
+> starts with it), otherwise `kubectl` falls back to the default kubeconfig and its current context, which may
+> be a different cluster.
+
+Open the UI (the command keeps running, use a separate terminal for the rest):
+
+```bash
+export KUBECONFIG=~/.kube/jenkins-kind.yaml
+kubectl port-forward svc/jenkins 8080:8080
+```
+
+Open http://localhost:8080, user `admin`, password from:
+
+```bash
+export KUBECONFIG=~/.kube/jenkins-kind.yaml
+kubectl get secret jenkins -o jsonpath='{.data.jenkins-admin-password}' | base64 -d
+```
+
+> The image tag in the Dockerfile, the chart version and `controller.image.tag` in the values go together: the
+> chart `5.13.3` ships Jenkins `2.580.2`. The image is never pulled (`pullPolicy: Never`): after rebuilding it,
+> run `kind load` again and restart the controller with `kubectl delete pod jenkins-0` (then restart the
+> port-forward too).
+
+The job `gbot` is the same as one created by hand: *New Item* → *Pipeline* → Definition
+**Pipeline script from SCM** → SCM **Git** → Repository URL `https://github.com/vystepanenko/gBot`,
+Credentials `- none -` → Branch Specifier `*/develop` → Script Path `pipeline/jenkins.groovy`.
+
+### Running a build
+
+- The **first** build of the job is started with *Build Now*: Jenkins learns the parameters from
+  `jenkins.groovy` during that run, which builds with the defaults (`linux` / `amd64`).
+- After that the job shows **Build with Parameters**: pick `OS`, `ARCH` and the skip flags, or keep the defaults.
+- The binary is under *Build Artifacts* of the build.
+
+The job is recreated from the configuration on every Jenkins restart, so after a restart the first build is
+again a *Build Now*.
+
 ## Project structure
 
 ```
@@ -389,6 +464,9 @@ user `admin`, password from `kubectl get secret argocd-initial-admin-secret -n a
 │   └── cicd.yaml         # CI/CD: test, build and push the image, update the tag in the chart
 ├── argocd/
 │   └── application.yaml  # ArgoCD Application: deploys helm/ from the develop branch
+├── pipeline/
+│   ├── jenkins.groovy    # Jenkins Pipeline: parameterized multi-platform build
+│   └── jenkins/          # Jenkins controller image (make + Go) and Helm chart values
 ├── helm/                 # Helm chart `gbot`
 │   ├── Chart.yaml        # chart version and appVersion
 │   ├── values.yaml       # image (tag updated by CI) and TELE_TOKEN Secret settings

@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gbot
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/vystepanenko/gBot.git
+    targetRevision: develop
+    path: helm
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gbot
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

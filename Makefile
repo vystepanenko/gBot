@@ -1,5 +1,6 @@
 APP      := $(shell basename $(shell git remote get-url origin) .git | tr '[:upper:]' '[:lower:]')
-REGISTRY ?= ghcr.io/vystepanenko
+REGISTRY   ?= ghcr.io
+REPOSITORY ?= vystepanenko/$(APP)
 VERSION  := $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)-$(shell git rev-parse --short HEAD)
 LDFLAGS  := -X github.com/vystepanenko/gBot/cmd.appVersion=$(VERSION)
 
@@ -12,9 +13,13 @@ TARGETOS   ?= $(HOST_OS)
 TARGETARCH ?= $(HOST_ARCH)
 
 BINARY    := $(APP)
-IMAGE_TAG  = $(REGISTRY)/$(APP):$(VERSION)-$(TARGETARCH)
+# The image is always a Linux image, so the OS part is not TARGETOS (host OS by default)
+IMAGE_TAG  = $(REGISTRY)/$(REPOSITORY):$(VERSION)-linux-$(TARGETARCH)
 
-.PHONY: run format lint test get build linux arm macos windows image push clean
+.PHONY: version run format lint test get build linux arm macos windows image push clean
+
+version:
+	@echo $(VERSION)
 
 run:
 	go run main.go $(C)

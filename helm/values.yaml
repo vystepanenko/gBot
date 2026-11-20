@@ -1,18 +1,15 @@
 # Only one replica per bot token: a second poller gets 409 Conflict from Telegram
 replicaCount: 1
-
+# tag is set by CI (.github/workflows/cicd.yaml) on every push to develop
 image:
-  repository: ghcr.io/vystepanenko
-  tag: v1.0.0
+  registry: ghcr.io
+  repository: vystepanenko/gbot
+  tag: v1.0.0-ce7828e
+  os: linux
   arch: amd64
   pullPolicy: IfNotPresent
-
-# TELE_TOKEN is read from this Secret, create it before installing the chart:
-#   read -s TELE_TOKEN
-#   kubectl create secret generic gbot --from-literal=token="$TELE_TOKEN"
 teleToken:
   secretName: gbot
   secretKey: token
-
 nameOverride: ""
 fullnameOverride: ""

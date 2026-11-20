@@ -56,7 +56,8 @@ When the bot starts you will see:
 gBot <version> started
 ```
 
-The version is taken from git automatically: `<last tag>-<short commit>`, e.g. `v0.0.0-ab75275`.
+The version is taken from git automatically: `<last tag>-<short commit>`, e.g. `v1.0.0-ce7828e`
+(`make version` prints it; run `git fetch --tags` first, without tags it is `v0.0.0-<commit>`).
 
 Now open your bot in Telegram and send `/start`.
 
@@ -92,6 +93,7 @@ The bot also replies to plain text messages:
 
 | Target              | Description                                                                                       |
 |---------------------|---------------------------------------------------------------------------------------------------|
+| `make version`      | Print the version used for binaries and image tags: `<last tag>-<short commit>`                 |
 | `make run C=<args>` | Run the app with `go run`. `C` is passed as CLI arguments, e.g. `make run C=start`                |
 | `make format`       | Format all Go sources with `gofmt -s -w`                                                          |
 | `make lint`         | Run `go vet ./...`                                                                                |
@@ -103,7 +105,7 @@ The bot also replies to plain text messages:
 | `make macos`        | Build for macOS arm64 (Apple Silicon) → `gbot`                                                    |
 | `make windows`      | Build for Windows amd64 → `gbot.exe`                                                              |
 | `make image`        | Build a Docker image for the host architecture                                                    |
-| `make push`         | Push the image to the registry (`ghcr.io/vystepanenko` by default)                                |
+| `make push`         | Push the image to the registry (`ghcr.io/vystepanenko/gbot` by default: `REGISTRY`/`REPOSITORY`)  |
 | `make clean`        | Remove built binaries and the Docker image (`docker rmi <IMAGE_TAG>`)                             |
 
 ## Multi-platform builds and testing (for QA)
@@ -164,12 +166,13 @@ How this works without emulation: the builder stage runs on the native platform 
 Images are tagged as:
 
 ```
-ghcr.io/vystepanenko/gbot:<version>-<arch>
-# e.g. ghcr.io/vystepanenko/gbot:v0.0.0-ab75275-arm64
+<REGISTRY>/<REPOSITORY>:<version>-linux-<arch>
+# e.g. ghcr.io/vystepanenko/gbot:v1.0.0-ce7828e-linux-amd64
 ```
 
-The image is always a Linux image, so the OS is not part of the tag. This matches the Helm chart,
-which builds the image reference as `<repository>/<chart name>:<tag>-<arch>`.
+The image is always a Linux image, so the OS part is always `linux` (not the host OS). This matches the
+Helm chart, which builds the image reference as `<registry>/<repository>:<tag>-<os>-<arch>`
+from `helm/values.yaml`.
 
 The base image (`quay.io/projectquay/golang`) and the registry (`ghcr.io`) are not on Docker Hub,
 so Docker Hub licensing and pull rate limits do not apply.
@@ -205,18 +208,22 @@ make clean TARGETARCH=arm64
 ### Release image
 
 A release image is tagged with the release version only (no commit hash), by overriding `VERSION`.
-`TARGETARCH=amd64` keeps the tag the Helm chart expects by default, whatever the host architecture:
+`TARGETARCH=amd64` builds the architecture the Helm chart uses by default, whatever the host architecture:
 
 ```bash
-make image VERSION=v1.0.0 TARGETARCH=amd64    # → ghcr.io/vystepanenko/gbot:v1.0.0-amd64
+make image VERSION=v1.0.0 TARGETARCH=amd64    # → ghcr.io/vystepanenko/gbot:v1.0.0-linux-amd64
 make push  VERSION=v1.0.0 TARGETARCH=amd64
 make clean VERSION=v1.0.0 TARGETARCH=amd64    # without VERSION, clean targets the <tag>-<commit> image
 ```
 
+> The published chart `gbot-1.0.0.tgz` (see [Helm](#helm)) predates the `-linux-` part and uses the image
+> `ghcr.io/vystepanenko/gbot:v1.0.0-amd64`.
+
 ## Helm
 
 The bot can be installed on a Kubernetes cluster with the Helm chart from the [GitHub releases](https://github.com/vystepanenko/gBot/releases).
-The chart source is in [`helm/`](helm).
+The chart source is in [`helm/`](helm); on the `develop` branch it is deployed automatically by ArgoCD
+(see [CI/CD](#cicd)). The steps below install the published chart `1.0.0`.
 
 1. Create a Telegram bot token with [@BotFather](https://t.me/BotFather) (see [Getting a bot token](#getting-a-bot-token)).
 2. Store it in a Kubernetes Secret. The chart reads the key `token` from the Secret `gbot` into `TELE_TOKEN`:
@@ -242,16 +249,21 @@ The chart source is in [`helm/`](helm).
 
    Then send `/start` to the bot in Telegram.
 
-Chart values:
+Chart values (chart `1.1.0` in [`helm/`](helm); the image is `<registry>/<repository>:<tag>-<os>-<arch>`):
 
-| Value                  | Default                | Description                                  |
-|------------------------|------------------------|----------------------------------------------|
-| `image.repository`     | `ghcr.io/vystepanenko` | Registry; the image name is the chart name   |
-| `image.tag`            | `v1.0.0`               | Image version                                |
-| `image.arch`           | `amd64`                | Image architecture, the tag suffix           |
-| `teleToken.secretName` | `gbot`                 | Secret with the bot token                    |
-| `teleToken.secretKey`  | `token`                | Key of the token in that Secret              |
-| `replicaCount`         | `1`                    | Keep 1: a second replica with the same token gets `409 Conflict` |
+| Value                  | Default              | Description                                                      |
+|------------------------|----------------------|------------------------------------------------------------------|
+| `image.registry`       | `ghcr.io`            | Container registry                                               |
+| `image.repository`     | `vystepanenko/gbot`  | Image repository in the registry                                 |
+| `image.tag`            | `v1.0.0-<commit>`    | `<last tag>-<short commit>`; set by CI on every push to `develop` |
+| `image.os`             | `linux`              | Image OS, part of the tag                                        |
+| `image.arch`           | `amd64`              | Image architecture, the tag suffix                               |
+| `teleToken.secretName` | `gbot`               | Secret with the bot token, read into `TELE_TOKEN`                |
+| `teleToken.secretKey`  | `token`              | Key of the token in that Secret                                  |
+| `replicaCount`         | `1`                  | Keep 1: a second replica with the same token gets `409 Conflict` |
+
+Chart `1.0.0` (the published release) has `image.repository: ghcr.io/vystepanenko`, `image.tag: v1.0.0`,
+`image.arch: amd64` and builds the image as `<repository>/<chart name>:<tag>-<arch>`.
 
 The commands above assume the release name `gbot` and the current namespace: with another release name
 the Deployment is called `<release>-gbot` (unless the release name already contains `gbot`),
@@ -265,6 +277,106 @@ helm template gbot helm
 helm package helm        # → gbot-<chart version>.tgz
 ```
 
+## CI/CD
+
+Every push to the `develop` branch runs the GitHub Actions workflow [`.github/workflows/cicd.yaml`](.github/workflows/cicd.yaml).
+It tests the code, builds the image, pushes it to `ghcr.io` and writes the new tag into `helm/values.yaml`.
+ArgoCD watches `helm/` on `develop` and deploys every new tag to Kubernetes (GitOps: CI never talks to the cluster).
+
+```mermaid
+flowchart TB
+    dev([Developer]) -->|"git push develop"| repo[("GitHub repo gBot<br/>branch develop")]
+    repo -->|"push event"| ci
+
+    subgraph actions["GitHub Actions: cicd.yaml"]
+        direction TB
+        ci["Job CI<br/>checkout (with tags)<br/>make test<br/>make version<br/>login ghcr.io<br/>make image push"]
+        cd["Job CD<br/>yq: image.tag = version<br/>commit + push"]
+        ci -->|"needs: ci"| cd
+    end
+
+    ci -->|"image v1.0.0-commit-linux-amd64"| ghcr[("ghcr.io<br/>vystepanenko/gbot")]
+    cd -->|"commit helm/values.yaml"| repo
+
+    subgraph k8s["Kubernetes cluster"]
+        argo["ArgoCD<br/>Application gbot"]
+        deploy["Deployment gbot<br/>namespace gbot"]
+        secret["Secret gbot<br/>TELE_TOKEN"]
+        argo -->|"helm template + sync"| deploy
+        secret -.->|"env TELE_TOKEN"| deploy
+    end
+
+    repo -->|"ArgoCD polls helm/ on develop"| argo
+    ghcr -->|"pull image"| deploy
+    deploy <-->|"long polling"| tg["Telegram Bot API"]
+    user([Telegram user]) <-->|"/start, /version"| tg
+```
+
+| Step | Where | What happens |
+|------|-------|--------------|
+| 1. Push | developer | `git push` to `develop` triggers the workflow |
+| 2. Job `CI` | GitHub Actions | checkout with full history (the version comes from git tags), `make test`, `make version` → `v1.0.0-<commit>`, login to `ghcr.io` with `GITHUB_TOKEN`, `make image push TARGETARCH=amd64` → `ghcr.io/vystepanenko/gbot:v1.0.0-<commit>-linux-amd64` |
+| 3. Job `CD` | GitHub Actions | runs only after `CI` succeeded: `yq` sets `image.tag` in `helm/values.yaml` to the same version, `github-actions` commits and pushes it to `develop` (a push with `GITHUB_TOKEN` does not start the workflow again) |
+| 4. Sync | ArgoCD | notices the new commit (polls every ~3 minutes), renders the chart and rolls out the Deployment with the new image |
+| 5. Run | Kubernetes | the pod pulls the image from `ghcr.io` and the bot answers in Telegram; `/version` shows `v1.0.0-<commit>` |
+
+Runs go one at a time: if several pushes arrive while a run is in progress, only the newest one is built
+(the older pending runs are cancelled). After each run `develop` on GitHub has one more commit (the tag update), so
+run `git pull` before the next push. If the `CD` push is rejected because `develop` moved meanwhile, don't re-run
+it (a re-run checks out the same commit and is rejected again): the run of the newer push sets the tag.
+
+### One-time setup
+
+1. **ghcr.io access for the workflow.** If the package `gbot` was first pushed from the command line, open
+   the package settings → *Manage Actions access* → add the repository `gBot` with the **Write** role.
+   Otherwise the image push fails with `403`. The package must be public for the cluster to pull it without credentials.
+2. **Kubernetes cluster with ArgoCD**, e.g. a local [kind](https://kind.sigs.k8s.io/) cluster with its own kubeconfig:
+
+   ```bash
+   kind create cluster --name gbot-argocd --kubeconfig ~/.kube/gbot-argocd.yaml
+   export KUBECONFIG=~/.kube/gbot-argocd.yaml
+   kubectl config current-context    # kind-gbot-argocd
+   kubectl create namespace argocd
+   kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+   kubectl wait -n argocd --for=condition=Ready pods --all --timeout=300s
+   ```
+
+   > Every `kubectl` command in this section and in [Check a deployment](#check-a-deployment) must target
+   > this cluster. `KUBECONFIG` is set only in the current shell: in a new terminal run the `export` again
+   > (each block below starts with it), otherwise `kubectl` falls back to the default kubeconfig and its
+   > current context, which may be a different cluster.
+
+3. **Bot token Secret** in the namespace the bot runs in (the token is never stored in git):
+
+   ```bash
+   export KUBECONFIG=~/.kube/gbot-argocd.yaml
+   kubectl create namespace gbot
+   read -s TELE_TOKEN
+   kubectl create secret generic gbot -n gbot --from-literal=token="$TELE_TOKEN"
+   ```
+
+4. **ArgoCD Application** ([`argocd/application.yaml`](argocd/application.yaml)): chart `helm/` from the branch
+   `develop`, release `gbot` in the namespace `gbot`, automatic sync:
+
+   ```bash
+   export KUBECONFIG=~/.kube/gbot-argocd.yaml
+   kubectl apply -f argocd/application.yaml
+   ```
+
+### Check a deployment
+
+```bash
+export KUBECONFIG=~/.kube/gbot-argocd.yaml
+kubectl get application gbot -n argocd     # SYNC STATUS Synced, HEALTH STATUS Healthy
+kubectl get pods -n gbot                   # Running, 0 restarts
+kubectl logs -n gbot deploy/gbot           # gBot v1.0.0-<commit> started
+```
+
+Then send `/version` to the bot: it answers with the same `v1.0.0-<commit>` as `image.tag` in `helm/values.yaml`.
+
+ArgoCD UI: `kubectl port-forward svc/argocd-server -n argocd 8080:443`, open https://localhost:8080,
+user `admin`, password from `kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d`.
+
 ## Project structure
 
 ```
@@ -273,9 +385,13 @@ helm package helm        # → gbot-<chart version>.tgz
 ├── Makefile              # build, cross-compile, image and clean targets
 ├── Dockerfile            # multi-stage build: quay.io golang builder → scratch
 ├── .dockerignore         # files excluded from the Docker build context
+├── .github/workflows/
+│   └── cicd.yaml         # CI/CD: test, build and push the image, update the tag in the chart
+├── argocd/
+│   └── application.yaml  # ArgoCD Application: deploys helm/ from the develop branch
 ├── helm/                 # Helm chart `gbot`
 │   ├── Chart.yaml        # chart version and appVersion
-│   ├── values.yaml       # image and TELE_TOKEN Secret settings
+│   ├── values.yaml       # image (tag updated by CI) and TELE_TOKEN Secret settings
 │   └── templates/        # Deployment, helpers, install notes
 ├── cmd/                  # CLI commands (cobra)
 │   ├── root.go           # root command

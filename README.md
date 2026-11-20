@@ -164,9 +164,12 @@ How this works without emulation: the builder stage runs on the native platform 
 Images are tagged as:
 
 ```
-ghcr.io/vystepanenko/gbot:<version>-linux-<arch>
-# e.g. ghcr.io/vystepanenko/gbot:v0.0.0-ab75275-linux-arm64
+ghcr.io/vystepanenko/gbot:<version>-<arch>
+# e.g. ghcr.io/vystepanenko/gbot:v0.0.0-ab75275-arm64
 ```
+
+The image is always a Linux image, so the OS is not part of the tag. This matches the Helm chart,
+which builds the image reference as `<repository>/<chart name>:<tag>-<arch>`.
 
 The base image (`quay.io/projectquay/golang`) and the registry (`ghcr.io`) are not on Docker Hub,
 so Docker Hub licensing and pull rate limits do not apply.
@@ -199,6 +202,69 @@ make clean TARGETARCH=arm64
 > `make clean` removes the image whose tag is computed from the **current** commit.
 > Run it before committing or switching branches, otherwise remove the old image manually with `docker rmi <tag>`.
 
+### Release image
+
+A release image is tagged with the release version only (no commit hash), by overriding `VERSION`.
+`TARGETARCH=amd64` keeps the tag the Helm chart expects by default, whatever the host architecture:
+
+```bash
+make image VERSION=v1.0.0 TARGETARCH=amd64    # → ghcr.io/vystepanenko/gbot:v1.0.0-amd64
+make push  VERSION=v1.0.0 TARGETARCH=amd64
+make clean VERSION=v1.0.0 TARGETARCH=amd64    # without VERSION, clean targets the <tag>-<commit> image
+```
+
+## Helm
+
+The bot can be installed on a Kubernetes cluster with the Helm chart from the [GitHub releases](https://github.com/vystepanenko/gBot/releases).
+The chart source is in [`helm/`](helm).
+
+1. Create a Telegram bot token with [@BotFather](https://t.me/BotFather) (see [Getting a bot token](#getting-a-bot-token)).
+2. Store it in a Kubernetes Secret. The chart reads the key `token` from the Secret `gbot` into `TELE_TOKEN`:
+
+   ```bash
+   read -s TELE_TOKEN   # paste the token, it won't be echoed or saved in shell history
+   kubectl create secret generic gbot --from-literal=token="$TELE_TOKEN"
+   ```
+
+3. Install the chart:
+
+   ```bash
+   helm install gbot https://github.com/vystepanenko/gBot/releases/download/v1.0.0/gbot-1.0.0.tgz
+   ```
+
+4. Check that the bot is running: the pod is `Running` with 0 restarts and the log shows `gBot v1.0.0 started`
+   (the log line alone is not enough: it is printed before the token is checked):
+
+   ```bash
+   kubectl get pods -l app.kubernetes.io/instance=gbot
+   kubectl logs deploy/gbot
+   ```
+
+   Then send `/start` to the bot in Telegram.
+
+Chart values:
+
+| Value                  | Default                | Description                                  |
+|------------------------|------------------------|----------------------------------------------|
+| `image.repository`     | `ghcr.io/vystepanenko` | Registry; the image name is the chart name   |
+| `image.tag`            | `v1.0.0`               | Image version                                |
+| `image.arch`           | `amd64`                | Image architecture, the tag suffix           |
+| `teleToken.secretName` | `gbot`                 | Secret with the bot token                    |
+| `teleToken.secretKey`  | `token`                | Key of the token in that Secret              |
+| `replicaCount`         | `1`                    | Keep 1: a second replica with the same token gets `409 Conflict` |
+
+The commands above assume the release name `gbot` and the current namespace: with another release name
+the Deployment is called `<release>-gbot` (unless the release name already contains `gbot`),
+and the Secret must be in the release namespace.
+
+Build and test the chart locally:
+
+```bash
+helm lint helm
+helm template gbot helm
+helm package helm        # → gbot-<chart version>.tgz
+```
+
 ## Project structure
 
 ```
@@ -207,6 +273,10 @@ make clean TARGETARCH=arm64
 ├── Makefile              # build, cross-compile, image and clean targets
 ├── Dockerfile            # multi-stage build: quay.io golang builder → scratch
 ├── .dockerignore         # files excluded from the Docker build context
+├── helm/                 # Helm chart `gbot`
+│   ├── Chart.yaml        # chart version and appVersion
+│   ├── values.yaml       # image and TELE_TOKEN Secret settings
+│   └── templates/        # Deployment, helpers, install notes
 ├── cmd/                  # CLI commands (cobra)
 │   ├── root.go           # root command
 │   ├── gbot.go           # `gbot` (`start`) command: creates and starts the bot

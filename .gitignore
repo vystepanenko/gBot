@@ -5,3 +5,4 @@ go.work.sum
 /vendor/
 /gbot
 /gbot.exe
+*.tgz

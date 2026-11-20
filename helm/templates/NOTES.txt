@@ -1,0 +1,12 @@
+{{ .Chart.Name }} {{ .Values.image.tag }} is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+The bot reads TELE_TOKEN from the Secret "{{ .Values.teleToken.secretName }}" (key "{{ .Values.teleToken.secretKey }}").
+If it does not exist yet, create it in the same namespace:
+
+  read -s TELE_TOKEN
+  kubectl create secret generic {{ .Values.teleToken.secretName }} --namespace {{ .Release.Namespace }} --from-literal={{ .Values.teleToken.secretKey }}="$TELE_TOKEN"
+
+Check that the pod is Running with 0 restarts and the log shows "gBot {{ .Values.image.tag }} started":
+
+  kubectl get pods --namespace {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl logs --namespace {{ .Release.Namespace }} deploy/{{ include "gbot.fullname" . }}

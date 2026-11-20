@@ -12,7 +12,7 @@ TARGETOS   ?= $(HOST_OS)
 TARGETARCH ?= $(HOST_ARCH)
 
 BINARY    := $(APP)
-IMAGE_TAG  = $(REGISTRY)/$(APP):$(VERSION)-linux-$(TARGETARCH)
+IMAGE_TAG  = $(REGISTRY)/$(APP):$(VERSION)-$(TARGETARCH)
 
 .PHONY: run format lint test get build linux arm macos windows image push clean
 

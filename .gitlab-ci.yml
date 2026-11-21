@@ -1,0 +1,74 @@
+spec:
+  inputs:
+    os:
+      description: Target operating system
+      options: [linux, darwin, windows]
+      default: linux
+    arch:
+      description: Target architecture
+      options: [amd64, arm64]
+      default: amd64
+    skip_tests:
+      description: Skip running tests
+      type: boolean
+      default: false
+    skip_lint:
+      description: Skip running linter
+      type: boolean
+      default: false
+---
+workflow:
+  rules:
+    # Branch pipelines only: an open MR would otherwise start a second pipeline without `build`
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: '"$[[ inputs.os ]]" == "windows"'
+      variables:
+        EXT: .exe
+    - when: always
+
+default:
+  image: quay.io/projectquay/golang:1.25
+
+# Read by the Makefile (TARGETOS / TARGETARCH / EXT)
+variables:
+  TARGETOS: "$[[ inputs.os ]]"
+  TARGETARCH: "$[[ inputs.arch ]]"
+  EXT: ""
+  # Full clone with tags: the Makefile version comes from `git describe --tags`,
+  # which is wrong or empty on the default shallow clone
+  GIT_DEPTH: "0"
+
+# No Go module cache on purpose: a cache must live inside the project directory, and
+# `make build` runs `gofmt -s -w ./` over the whole tree, read-only module files included
+stages:
+  - lint
+  - test
+  - build
+
+lint:
+  stage: lint
+  rules:
+    - if: '"$[[ inputs.skip_lint ]]" == "true"'
+      when: never
+    - when: on_success
+  script:
+    - make lint
+
+test:
+  stage: test
+  rules:
+    - if: '"$[[ inputs.skip_tests ]]" == "true"'
+      when: never
+    - when: on_success
+  script:
+    - make test
+
+build:
+  stage: build
+  script:
+    - echo "Building gbot $(make -s version) for $TARGETOS/$TARGETARCH"
+    - make build
+  artifacts:
+    paths:
+      - gbot$EXT

@@ -452,6 +452,49 @@ Credentials `- none -` → Branch Specifier `*/develop` → Script Path `pipelin
 The job is recreated from the configuration on every Jenkins restart, so after a restart the first build is
 again a *Build Now*.
 
+## GitLab CI
+
+[`.gitlab-ci.yml`](.gitlab-ci.yml) is the same parameterized multi-platform build as the Jenkins pipeline,
+ported to GitLab CI/CD. The repository is pushed to GitLab as a second remote:
+[gitlab.com/vystepanenko/gbot](https://gitlab.com/vystepanenko/gbot), where the pipeline runs on GitLab.com
+instance runners.
+
+Jobs: `lint` → `test` → `build`. Every job runs in `quay.io/projectquay/golang:1.25` (the toolchain of the
+`Dockerfile` builder) and calls the same make targets as Jenkins. `build` keeps one binary as the job
+artifact: `gbot`, or `gbot.exe` for Windows.
+
+| Input        | Jenkins parameter | Choices / default                      | Effect                           |
+|--------------|-------------------|----------------------------------------|----------------------------------|
+| `os`         | `OS`              | `linux` (default), `darwin`, `windows` | `TARGETOS` of `make build`       |
+| `arch`       | `ARCH`            | `amd64` (default), `arm64`             | `TARGETARCH` of `make build`     |
+| `skip_lint`  | `SKIP_LINT`       | `false`                                | no `lint` job                    |
+| `skip_tests` | `SKIP_TESTS`      | `false`                                | no `test` job                    |
+
+### Running a pipeline
+
+- A push to any branch runs the pipeline with the defaults (`linux` / `amd64`, lint and tests on).
+- With other inputs: *Build* → *Pipelines* → *New pipeline* → pick the branch → set the values under
+  *Inputs* → *New pipeline*.
+- The binary is in the artifacts of the `build` job (*Download artifacts* on the job or pipeline page).
+
+### Jenkins → GitLab mapping
+
+| Jenkins (`pipeline/jenkins.groovy`)                           | GitLab (`.gitlab-ci.yml`)                                             |
+|---------------------------------------------------------------|-----------------------------------------------------------------------|
+| `parameters { choice / booleanParam }`                        | `spec: inputs` (`options`, `type: boolean`, `default`, `description`) |
+| *Build with Parameters*                                       | *New pipeline* form, section *Inputs*                                 |
+| `environment { TARGETOS = "${params.OS}" … }`                 | global `variables` with `$[[ inputs.os ]]`                            |
+| `EXT = params.OS == 'windows' ? '.exe' : ''`                  | `workflow: rules: … variables: { EXT: .exe }`                         |
+| `stage('Lint') { when { expression { !params.SKIP_LINT } } }` | job `lint` with `rules: - if: … when: never`                          |
+| `agent any` + controller image with `make` and Go             | `default: image:` (a fresh container for every job)                   |
+| implicit `checkout scm`                                       | the runner clones the commit (`GIT_DEPTH: "0"` for tags)              |
+| `archiveArtifacts artifacts: "gbot${env.EXT ?: ''}"`          | `artifacts: paths: [gbot$EXT]`                                        |
+| `post { always { deleteDir() } }`                             | not needed: every job starts from a clean clone                       |
+
+> New GitLab.com projects don't allow pipeline variables to be set from the *New pipeline* form by default,
+> so the build parameters are pipeline inputs, not variables. Inputs are substituted when the pipeline is
+> created, so a job can't change them.
+
 ## Project structure
 
 ```
@@ -462,6 +505,7 @@ again a *Build Now*.
 ├── .dockerignore         # files excluded from the Docker build context
 ├── .github/workflows/
 │   └── cicd.yaml         # CI/CD: test, build and push the image, update the tag in the chart
+├── .gitlab-ci.yml        # GitLab CI: the Jenkins multi-platform build ported to GitLab
 ├── argocd/
 │   └── application.yaml  # ArgoCD Application: deploys helm/ from the develop branch
 ├── pipeline/

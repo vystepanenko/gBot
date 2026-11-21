@@ -4,7 +4,7 @@ replicaCount: 1
 image:
   registry: ghcr.io
   repository: vystepanenko/gbot
-  tag: v1.0.0-53b06f5
+  tag: v1.0.0-6bc7895
   os: linux
   arch: amd64
   pullPolicy: IfNotPresent
